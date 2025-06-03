@@ -1,0 +1,13 @@
+flask
+gunicorn
+langchain
+langchain-community
+langchain-core
+langchain-huggingface
+langchain-openai
+sentence-transformers
+chromadb
+python-dotenv
+pinecone
+protobuf==3.20.0
+pysqlite3-binary
