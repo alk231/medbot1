@@ -1,2 +1,2 @@
-web: gunicorn Medical_Chatbot.app:app
+web: gunicorn Medical_Chatbot:app
 
