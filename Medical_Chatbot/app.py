@@ -1,117 +1,80 @@
 import os
-from flask import Flask, render_template, request, session, redirect, url_for
-from dotenv import load_dotenv
+from flask import Flask, request, jsonify, render_template
+from langchain_groq import ChatGroq, GroqEmbeddings
+from langchain.vectorstores import Pinecone as PineconeVectorStore
 from pinecone import Pinecone
 
-from langchain_community.chat_models import ChatOpenAI
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-from langchain_community.vectorstores import Pinecone as LangchainPinecone
-
-# Load environment variables
-load_dotenv()
-
-# Get environment variables
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_ENV = os.getenv("PINECONE_ENV")
-PINECONE_INDEX = os.getenv("PINECONE_INDEX")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-# Initialize Flask app
+# ----------------------------
+# Flask App Setup
+# ----------------------------
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "fallback_secret")
 
-# Initialize Pinecone client
-pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
+# ----------------------------
+# API Keys
+# ----------------------------
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-# Define custom prompt
-CUSTOM_PROMPT_TEMPLATE = """
-Answer the user's question using only the information provided in the context.
+# ----------------------------
+# Pinecone Setup
+# ----------------------------
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index_name = "alok"   # your Pinecone index
 
-- If the answer isn't in the context, respond with "I don't know."
-- Do not make up information.
-- Do not mention that you're using context or refer to any source.
-- Keep the response clear, concise, and natural—like a helpful assistant.
-- No greetings or filler text; just give the answer directly.
-
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
-"""
-
-prompt = PromptTemplate(
-    input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
+# ----------------------------
+# Groq Embeddings
+# ----------------------------
+embeddings = GroqEmbeddings(
+    groq_api_key=GROQ_API_KEY,
+    model="nomic-embed-text-v1.5"
 )
 
-llm = ChatOpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    model="llama3-70b-8192",
-    openai_api_key=GROQ_API_KEY,
+# ----------------------------
+# Groq LLM
+# ----------------------------
+llm = ChatGroq(
+    groq_api_key=GROQ_API_KEY,
+    model_name="llama3-70b-8192"
 )
 
-# 🔑 Lazy globals (singleton pattern)
-retrieval_chain = None
+# ----------------------------
+# Vector Store
+# ----------------------------
+vectorstore = PineconeVectorStore.from_existing_index(
+    index_name=index_name,
+    embedding=embeddings
+)
 
-
+# ----------------------------
 # Routes
-@app.route("/", methods=["GET"])
+# ----------------------------
+@app.route("/")
 def home():
-    if "chat_history" not in session:
-        session["chat_history"] = []
-    return render_template("index.html", chat_history=session["chat_history"])
-
+    return render_template("index.html")
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    global retrieval_chain
-    user_input = request.form["user_input"]
-
-    if "chat_history" not in session:
-        session["chat_history"] = []
-
     try:
-        # Initialize heavy objects only once
-        if retrieval_chain is None:
-            embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-            vectorstore = LangchainPinecone.from_existing_index(
-                index_name=PINECONE_INDEX, embedding=embeddings
-            )
-            retriever = vectorstore.as_retriever()
-            retrieval_chain = RetrievalQA.from_chain_type(
-                llm=llm,
-                chain_type="stuff",
-                retriever=retriever,
-                chain_type_kwargs={"prompt": prompt},
-                return_source_documents=True,
-            )
+        user_question = request.json.get("question")
 
-        result = retrieval_chain.invoke({"query": user_input})
-        bot_response = result["result"]
+        # Retrieve relevant docs from Pinecone
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        docs = retriever.get_relevant_documents(user_question)
 
-        # Save in chat history
-        session["chat_history"].append({"user": user_input, "bot": bot_response})
-        session.modified = True
+        context = "\n".join([d.page_content for d in docs])
 
-        return redirect(url_for("home"))
+        # Run query through Groq LLM
+        response = llm.predict(
+            f"Answer the following based on context:\n\n{context}\n\nQuestion: {user_question}\nAnswer:"
+        )
 
+        return jsonify({"answer": response})
     except Exception as e:
-        session["chat_history"].append({"user": user_input, "bot": f"Error: {str(e)}"})
-        session.modified = True
-        return redirect(url_for("home"))
+        return jsonify({"error": str(e)}), 500
 
-
-@app.route("/clear", methods=["GET"])
-def clear():
-    session.pop("chat_history", None)
-    return redirect(url_for("home"))
-
-
-# Run app
+# ----------------------------
+# Run Flask
+# ----------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
