@@ -20,16 +20,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Initialize Flask app
 app = Flask(__name__)
-app.secret_key = "your_secret_key_here"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "fallback_secret")
 
 # Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
-
-# Initialize embeddings and vector store
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vectorstore = LangchainPinecone.from_existing_index(
-    index_name=PINECONE_INDEX, embedding=embeddings
-)
 
 # Define custom prompt
 CUSTOM_PROMPT_TEMPLATE = """
@@ -50,7 +44,6 @@ Question:
 Answer:
 """
 
-# Set up prompt and retrieval chain
 prompt = PromptTemplate(
     input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
 )
@@ -61,14 +54,8 @@ llm = ChatOpenAI(
     openai_api_key=GROQ_API_KEY,
 )
 
-retriever = vectorstore.as_retriever()
-retrieval_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    chain_type="stuff",
-    retriever=retriever,
-    chain_type_kwargs={"prompt": prompt},
-    return_source_documents=True,
-)
+# 🔑 Lazy globals (singleton pattern)
+retrieval_chain = None
 
 
 # Routes
@@ -81,12 +68,28 @@ def home():
 
 @app.route("/ask", methods=["POST"])
 def ask():
+    global retrieval_chain
     user_input = request.form["user_input"]
 
     if "chat_history" not in session:
         session["chat_history"] = []
 
     try:
+        # Initialize heavy objects only once
+        if retrieval_chain is None:
+            embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            vectorstore = LangchainPinecone.from_existing_index(
+                index_name=PINECONE_INDEX, embedding=embeddings
+            )
+            retriever = vectorstore.as_retriever()
+            retrieval_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=retriever,
+                chain_type_kwargs={"prompt": prompt},
+                return_source_documents=True,
+            )
+
         result = retrieval_chain.invoke({"query": user_input})
         bot_response = result["result"]
 
@@ -112,4 +115,3 @@ def clear():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
