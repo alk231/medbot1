@@ -3,11 +3,8 @@ gunicorn
 langchain
 langchain-community
 langchain-core
-langchain-huggingface
-langchain-openai
-sentence-transformers
-chromadb
-python-dotenv
-pinecone
+langchain-groq
+pinecone-client
 protobuf==3.20.0
+python-dotenv
 pysqlite3-binary
