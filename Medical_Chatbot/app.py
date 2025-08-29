@@ -33,8 +33,9 @@ try:
 except Exception as e:
     print(f"Pinecone connection failed: {str(e)}")
 
-# Initialize embeddings and vector store
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# ✅ Use smaller embeddings to save memory
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L3-v2")
+
 vectorstore = LangchainPinecone.from_existing_index(
     index_name=PINECONE_INDEX,
     embedding=embeddings
@@ -63,10 +64,10 @@ prompt = PromptTemplate(
     input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
 )
 
-# ✅ Use hosted Groq API (no local model loading)
+# Hosted Groq API (no local model)
 llm = ChatGroq(
     api_key=GROQ_API_KEY,
-    model="llama3-7b",  # Hosted, not local
+    model="llama3-7b",
 )
 
 retriever = vectorstore.as_retriever()
@@ -108,7 +109,7 @@ def clear():
     session.pop("chat_history", None)
     return redirect(url_for("home"))
 
-# Status route to check Pinecone connectivity
+# Status route
 @app.route("/status", methods=["GET"])
 def status():
     try:
