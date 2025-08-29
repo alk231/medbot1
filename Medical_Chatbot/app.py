@@ -1,9 +1,9 @@
 import os
 from flask import Flask, render_template, request, session, redirect, url_for
 from dotenv import load_dotenv
-from pinecone import Pinecone
+import pinecone  # ✅ updated import
 
-from langchain_groq import ChatGroq   # ✅ instead of ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
@@ -21,8 +21,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 
-# ✅ Initialize Pinecone client (no environment arg in new SDK)
-pc = Pinecone(api_key=PINECONE_API_KEY)
+# ✅ Initialize Pinecone (new SDK)
+pinecone.init(api_key=PINECONE_API_KEY)
 
 # Initialize embeddings and vector store
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
@@ -54,7 +54,7 @@ prompt = PromptTemplate(
     input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
 )
 
-# ✅ Use ChatGroq instead of ChatOpenAI
+# Use ChatGroq
 llm = ChatGroq(
     api_key=GROQ_API_KEY,
     model="llama3-70b-8192",
@@ -75,7 +75,6 @@ def home():
     if "chat_history" not in session:
         session["chat_history"] = []
     return render_template("index.html", chat_history=session["chat_history"])
-
 
 @app.route("/ask", methods=["POST"])
 def ask():
@@ -99,12 +98,10 @@ def ask():
         session.modified = True
         return redirect(url_for("home"))
 
-
 @app.route("/clear", methods=["GET"])
 def clear():
     session.pop("chat_history", None)
     return redirect(url_for("home"))
-
 
 # Run app
 if __name__ == "__main__":
