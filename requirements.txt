@@ -4,7 +4,7 @@ langchain
 langchain-community
 langchain-core
 langchain-groq
-pinecone-client
+pinecone        # updated
 protobuf==3.20.0
 sentence-transformers
 pysqlite3-binary
