@@ -1,7 +1,7 @@
 import os
 from flask import Flask, render_template, request, session, redirect, url_for
 from dotenv import load_dotenv
-import pinecone  # ✅ updated import
+from pinecone import Pinecone
 
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -12,7 +12,7 @@ from langchain_community.vectorstores import Pinecone as LangchainPinecone
 # Load environment variables
 load_dotenv()
 
-# Get environment variables
+# Environment variables
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX = os.getenv("PINECONE_INDEX")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -21,16 +21,26 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 
-# ✅ Initialize Pinecone (new SDK)
-pinecone.init(api_key=PINECONE_API_KEY)
+# ✅ Initialize Pinecone client
+pc = Pinecone(api_key=PINECONE_API_KEY)
+
+# ✅ Test Pinecone connection
+try:
+    indexes = pc.list_indexes().names()
+    print(f"Pinecone connected successfully. Available indexes: {indexes}")
+    if PINECONE_INDEX not in indexes:
+        raise Exception(f"Index '{PINECONE_INDEX}' not found.")
+except Exception as e:
+    print(f"Pinecone connection failed: {str(e)}")
 
 # Initialize embeddings and vector store
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 vectorstore = LangchainPinecone.from_existing_index(
-    index_name=PINECONE_INDEX, embedding=embeddings
+    index_name=PINECONE_INDEX,
+    embedding=embeddings
 )
 
-# Define custom prompt
+# Custom prompt
 CUSTOM_PROMPT_TEMPLATE = """
 Answer the user's question using only the information provided in the context.
 
@@ -49,12 +59,11 @@ Question:
 Answer:
 """
 
-# Set up prompt and retrieval chain
 prompt = PromptTemplate(
     input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
 )
 
-# Use ChatGroq
+# Initialize LLM
 llm = ChatGroq(
     api_key=GROQ_API_KEY,
     model="llama3-70b-8192",
@@ -86,13 +95,9 @@ def ask():
     try:
         result = retrieval_chain.invoke({"query": user_input})
         bot_response = result["result"]
-
-        # Save in chat history
         session["chat_history"].append({"user": user_input, "bot": bot_response})
         session.modified = True
-
         return redirect(url_for("home"))
-
     except Exception as e:
         session["chat_history"].append({"user": user_input, "bot": f"Error: {str(e)}"})
         session.modified = True
@@ -102,6 +107,15 @@ def ask():
 def clear():
     session.pop("chat_history", None)
     return redirect(url_for("home"))
+
+# ✅ Status route to check Pinecone connectivity
+@app.route("/status", methods=["GET"])
+def status():
+    try:
+        indexes = pc.list_indexes().names()
+        return {"status": "ok", "indexes": indexes}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # Run app
 if __name__ == "__main__":
