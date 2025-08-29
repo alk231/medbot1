@@ -6,5 +6,7 @@ langchain-core
 langchain-groq
 pinecone-client
 protobuf==3.20.0
-python-dotenv
+sentence-transformers
 pysqlite3-binary
+langchain-huggingface
+python-dotenv
