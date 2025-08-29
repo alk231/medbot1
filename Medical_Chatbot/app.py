@@ -63,24 +63,20 @@ prompt = PromptTemplate(
     input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
 )
 
-# ✅ Lazy-load LLM to save memory
-llm = None
-retrieval_chain = None
+# ✅ Use hosted Groq API (no local model loading)
+llm = ChatGroq(
+    api_key=GROQ_API_KEY,
+    model="llama3-7b",  # Hosted, not local
+)
 
-def get_retrieval_chain():
-    global llm, retrieval_chain
-    if llm is None:
-        # Load smaller Groq model
-        llm = ChatGroq(api_key=GROQ_API_KEY, model="llama3-7b")
-        retriever = vectorstore.as_retriever()
-        retrieval_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=retriever,
-            chain_type_kwargs={"prompt": prompt},
-            return_source_documents=True,
-        )
-    return retrieval_chain
+retriever = vectorstore.as_retriever()
+retrieval_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=retriever,
+    chain_type_kwargs={"prompt": prompt},
+    return_source_documents=True,
+)
 
 # Routes
 @app.route("/", methods=["GET"])
@@ -97,8 +93,7 @@ def ask():
         session["chat_history"] = []
 
     try:
-        chain = get_retrieval_chain()  # lazy load LLM
-        result = chain.invoke({"query": user_input})
+        result = retrieval_chain.invoke({"query": user_input})
         bot_response = result["result"]
         session["chat_history"].append({"user": user_input, "bot": bot_response})
         session.modified = True
