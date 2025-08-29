@@ -21,10 +21,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 
-# ✅ Initialize Pinecone client
+# Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# ✅ Test Pinecone connection
+# Test Pinecone connection
 try:
     indexes = pc.list_indexes().names()
     print(f"Pinecone connected successfully. Available indexes: {indexes}")
@@ -63,20 +63,24 @@ prompt = PromptTemplate(
     input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE
 )
 
-# Initialize LLM
-llm = ChatGroq(
-    api_key=GROQ_API_KEY,
-    model="llama3-70b-8192",
-)
+# ✅ Lazy-load LLM to save memory
+llm = None
+retrieval_chain = None
 
-retriever = vectorstore.as_retriever()
-retrieval_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    chain_type="stuff",
-    retriever=retriever,
-    chain_type_kwargs={"prompt": prompt},
-    return_source_documents=True,
-)
+def get_retrieval_chain():
+    global llm, retrieval_chain
+    if llm is None:
+        # Load smaller Groq model
+        llm = ChatGroq(api_key=GROQ_API_KEY, model="llama3-7b")
+        retriever = vectorstore.as_retriever()
+        retrieval_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=retriever,
+            chain_type_kwargs={"prompt": prompt},
+            return_source_documents=True,
+        )
+    return retrieval_chain
 
 # Routes
 @app.route("/", methods=["GET"])
@@ -93,7 +97,8 @@ def ask():
         session["chat_history"] = []
 
     try:
-        result = retrieval_chain.invoke({"query": user_input})
+        chain = get_retrieval_chain()  # lazy load LLM
+        result = chain.invoke({"query": user_input})
         bot_response = result["result"]
         session["chat_history"].append({"user": user_input, "bot": bot_response})
         session.modified = True
@@ -108,7 +113,7 @@ def clear():
     session.pop("chat_history", None)
     return redirect(url_for("home"))
 
-# ✅ Status route to check Pinecone connectivity
+# Status route to check Pinecone connectivity
 @app.route("/status", methods=["GET"])
 def status():
     try:
